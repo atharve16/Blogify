@@ -1,9 +1,8 @@
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState, useRef } from "react";
 import { useAuth } from "../context/authContext";
 import { useBlog } from "../context/blogContext";
 import BlogCard from "./blogCard";
 import Pagination from "../Components/Pagnation/pagination";
-import Loading from "../Components/Utility/loading";
 import {
   Search,
   Filter,
@@ -12,16 +11,19 @@ import {
   BookOpen,
   Plus,
   Sparkles,
+  AlertCircle,
 } from "lucide-react";
 
 const Home = ({ setCurrentPage, setBlogId }) => {
   const [blogs, setBlogs] = useState([]);
-  const [loading, setLoading] = useState(true);
+  const [loading, setLoading] = useState(false);
   const [blogPage, setBlogPage] = useState(0);
   const [totalPages, setTotalPages] = useState(1);
   const [searchTerm, setSearchTerm] = useState("");
   const [error, setError] = useState("");
   const [authorEmails, setAuthorEmails] = useState({});
+  const [visibleBlogs, setVisibleBlogs] = useState(6);
+  const observerRef = useRef();
 
   const { user } = useAuth();
   const { api } = useBlog();
@@ -36,23 +38,30 @@ const Home = ({ setCurrentPage, setBlogId }) => {
     try {
       const response = await api.getBlogs(page, 12);
       const blogsData = response.blogs;
-      const emailsMap = {};
 
-      await Promise.all(
-        blogsData.map(async (blog) => {
-          if (!emailsMap[blog.authorId]) {
-            try {
-              const res = await fetch(
-                `${import.meta.env.VITE_BASE_URL}/user/${blog.authorId}`
-              );
-              const data = await res.json();
-              emailsMap[blog.authorId] = data.email;
-            } catch (err) {
-              console.error("Error fetching author email for blog:", blog.id);
-            }
+      const uniqueAuthorIds = [...new Set(blogsData.map((blog) => blog.authorId))];
+      const emailsMap = { ...authorEmails };
+      const newAuthors = uniqueAuthorIds.filter((id) => !emailsMap[id]);
+
+      if (newAuthors.length > 0) {
+        const emailPromises = newAuthors.map(async (authorId) => {
+          try {
+            const res = await fetch(
+              `${import.meta.env.VITE_BASE_URL}/user/${authorId}`
+            );
+            const data = await res.json();
+            return { authorId, email: data.email };
+          } catch (err) {
+            console.error("Error fetching author email:", authorId);
+            return { authorId, email: "Unknown" };
           }
-        })
-      );
+        });
+
+        const results = await Promise.all(emailPromises);
+        results.forEach(({ authorId, email }) => {
+          emailsMap[authorId] = email;
+        });
+      }
 
       setAuthorEmails(emailsMap);
       setBlogs(blogsData);
@@ -74,6 +83,25 @@ const Home = ({ setCurrentPage, setBlogId }) => {
       return matchesSearch;
     });
   }, [blogs, searchTerm]);
+
+  const lastBlogRef = useCallback(
+    (node) => {
+      if (loading) return;
+      if (observerRef.current) observerRef.current.disconnect();
+
+      observerRef.current = new IntersectionObserver(
+        (entries) => {
+          if (entries[0].isIntersecting && visibleBlogs < filteredBlogs.length) {
+            setVisibleBlogs((prev) => Math.min(prev + 6, filteredBlogs.length));
+          }
+        },
+        { threshold: 0.1, rootMargin: "100px" }
+      );
+
+      if (node) observerRef.current.observe(node);
+    },
+    [loading, visibleBlogs, filteredBlogs.length]
+  );
 
   const handleView = useCallback(
     (id) => {
@@ -103,155 +131,189 @@ const Home = ({ setCurrentPage, setBlogId }) => {
         }
       }
     },
-    [blogPage]
+    [api, blogPage]
   );
 
-  if (loading) {
-    return (
-      <div className="min-h-screen bg-gradient-to-br from-blue-50 via-white to-purple-50 pt-20">
-        <Loading />
-      </div>
-    );
-  }
-
   return (
-    <div className="min-h-screen bg-gradient-to-br from-blue-50 via-white to-purple-50 pt-20">
-      <section className="relative overflow-hidden bg-gradient-to-r from-blue-600 via-purple-600 to-pink-600 min-h-[600px] flex items-center">
-        <div className="absolute inset-0">
-          <div className="absolute top-20 left-20 w-72 h-72 bg-white/10 rounded-full blur-3xl animate-pulse"></div>
-          <div
-            className="absolute bottom-20 right-20 w-96 h-96 bg-white/10 rounded-full blur-3xl animate-pulse"
-            style={{ animationDelay: "1s" }}
-          ></div>
-          <div
-            className="absolute top-1/2 left-1/2 transform -translate-x-1/2 -translate-y-1/2 w-64 h-64 bg-white/5 rounded-full blur-3xl animate-pulse"
-            style={{ animationDelay: "2s" }}
-          ></div>
-        </div>
-
-        <div className="relative max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-20 text-center">
-          <div className="space-y-8">
-            <div className="flex justify-center mb-6">
-              <div className="bg-white/20 backdrop-blur-md rounded-full px-6 py-2 border border-white/30">
-                <span className="text-white/90 font-medium flex items-center">
-                  <Sparkles className="w-4 h-4 mr-2" />
-                  Welcome to the future of blogging
-                </span>
-              </div>
-            </div>
-
-            <h1 className="text-6xl md:text-8xl font-black text-white mb-8 tracking-tight">
-              <span className="block">Discover</span>
-              <span className="bg-gradient-to-r from-yellow-300 to-orange-400 bg-clip-text text-transparent">
-                Amazing
+    <div className="min-h-screen bg-gradient-to-br from-slate-50 via-blue-50 to-indigo-50">
+      {/* Hero Section */}
+      <div className="relative overflow-hidden bg-gradient-to-r from-indigo-600 via-purple-600 to-pink-600">
+        <div className="absolute inset-0 bg-black opacity-20"></div>
+        <div className="absolute inset-0 bg-gradient-to-b from-transparent to-black/10"></div>
+        
+        <div className="relative max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-16 sm:py-24 lg:py-32">
+          <div className="text-center space-y-6 sm:space-y-8">
+            <div className="inline-flex items-center gap-2 bg-white/10 backdrop-blur-sm rounded-full px-4 py-2 text-white shadow-lg">
+              <Sparkles className="w-4 h-4 animate-pulse" />
+              <span className="text-xs sm:text-sm font-medium">
+                Welcome to Blogify - Where Ideas Come to Life
               </span>
-              <span className="block">Stories</span>
+            </div>
+            
+            <h1 className="text-4xl sm:text-5xl md:text-6xl lg:text-7xl font-extrabold text-white tracking-tight">
+              Share Your Story
+              <span className="block text-yellow-300 mt-2">Inspire the World</span>
             </h1>
-
-            <p className="text-xl md:text-2xl text-white/80 max-w-4xl mx-auto leading-relaxed font-light">
+            
+            <p className="mt-4 sm:mt-6 max-w-2xl mx-auto text-base sm:text-lg md:text-xl text-indigo-100 px-4">
               Join our vibrant community of storytellers, thought leaders, and
               innovators. Share your ideas and discover perspectives that will
               inspire and transform your thinking.
             </p>
-
-            <div className="flex flex-col sm:flex-row items-center justify-center space-y-6 sm:space-y-0 sm:space-x-12 mt-12">
-              <div className="flex items-center space-x-3 text-white/90 bg-white/10 backdrop-blur-md rounded-2xl px-6 py-4 border border-white/20">
-                <Users className="w-6 h-6 text-blue-200" />
-                <span className="font-semibold">10K+ Writers</span>
-              </div>
-              <div className="flex items-center space-x-3 text-white/90 bg-white/10 backdrop-blur-md rounded-2xl px-6 py-4 border border-white/20">
-                <BookOpen className="w-6 h-6 text-purple-200" />
-                <span className="font-semibold">{blogs.length}+ Articles</span>
-              </div>
-              <div className="flex items-center space-x-3 text-white/90 bg-white/10 backdrop-blur-md rounded-2xl px-6 py-4 border border-white/20">
-                <TrendingUp className="w-6 h-6 text-pink-200" />
-                <span className="font-semibold">Growing Daily</span>
-              </div>
-            </div>
-          </div>
-        </div>
-      </section>
-
-      <section className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-16 -mt-20 relative z-10">
-        <div className="bg-white/80 backdrop-blur-xl rounded-3xl shadow-2xl p-8 mb-16 border border-white/50">
-          <div className="flex flex-col lg:flex-row lg:items-center lg:justify-between space-y-6 lg:space-y-0 lg:space-x-6">
-            <div className="relative flex-1 max-w-2xl">
-              <Search className="absolute left-4 top-1/2 transform -translate-y-1/2 text-gray-400 w-6 h-6" />
-              <input
-                type="text"
-                placeholder="Search for amazing articles, authors, or topics..."
-                value={searchTerm}
-                onChange={(e) => setSearchTerm(e.target.value)}
-                className="w-full pl-14 pr-6 py-4 border-2 border-gray-200 rounded-2xl focus:outline-none focus:ring-4 focus:ring-blue-500/20 focus:border-blue-500 transition-all duration-300 text-lg bg-white/60 backdrop-blur-sm"
-              />
-            </div>
-
+            
             {user && (
               <button
                 onClick={() => setCurrentPage("create")}
-                className="flex items-center space-x-3 bg-gradient-to-r from-blue-600 to-purple-600 text-white px-8 py-4 rounded-2xl font-bold hover:from-blue-700 hover:to-purple-700 transition-all duration-300 shadow-lg hover:shadow-xl transform hover:scale-105 whitespace-nowrap"
+                className="inline-flex items-center gap-2 bg-white text-indigo-600 px-6 sm:px-8 py-3 sm:py-4 rounded-full font-semibold text-base sm:text-lg hover:bg-indigo-50 transition-all duration-200 shadow-xl hover:shadow-2xl transform hover:-translate-y-1 mt-4"
               >
                 <Plus className="w-5 h-5" />
-                <span>Create New Story</span>
+                Create Your First Blog
               </button>
             )}
           </div>
         </div>
+      </div>
 
+      {/* Stats Section */}
+      <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 -mt-12 sm:-mt-16 relative z-10">
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4 sm:gap-6">
+          <div className="bg-white rounded-2xl shadow-xl p-6 sm:p-8 border border-gray-100 hover:shadow-2xl transition-shadow duration-300">
+            <div className="flex items-center space-x-4">
+              <div className="p-3 sm:p-4 bg-gradient-to-br from-blue-500 to-indigo-600 rounded-xl shadow-lg">
+                <TrendingUp className="w-6 h-6 sm:w-8 sm:h-8 text-white" />
+              </div>
+              <div>
+                <p className="text-2xl sm:text-3xl font-bold text-gray-900">{blogs.length}</p>
+                <p className="text-xs sm:text-sm text-gray-600">Total Blogs</p>
+              </div>
+            </div>
+          </div>
+          
+          <div className="bg-white rounded-2xl shadow-xl p-6 sm:p-8 border border-gray-100 hover:shadow-2xl transition-shadow duration-300">
+            <div className="flex items-center space-x-4">
+              <div className="p-3 sm:p-4 bg-gradient-to-br from-purple-500 to-pink-600 rounded-xl shadow-lg">
+                <Users className="w-6 h-6 sm:w-8 sm:h-8 text-white" />
+              </div>
+              <div>
+                <p className="text-2xl sm:text-3xl font-bold text-gray-900">
+                  {Object.keys(authorEmails).length}
+                </p>
+                <p className="text-xs sm:text-sm text-gray-600">Active Writers</p>
+              </div>
+            </div>
+          </div>
+          
+          <div className="bg-white rounded-2xl shadow-xl p-6 sm:p-8 border border-gray-100 hover:shadow-2xl transition-shadow duration-300 sm:col-span-2 lg:col-span-1">
+            <div className="flex items-center space-x-4">
+              <div className="p-3 sm:p-4 bg-gradient-to-br from-green-500 to-teal-600 rounded-xl shadow-lg">
+                <BookOpen className="w-6 h-6 sm:w-8 sm:h-8 text-white" />
+              </div>
+              <div>
+                <p className="text-2xl sm:text-3xl font-bold text-gray-900">{totalPages}</p>
+                <p className="text-xs sm:text-sm text-gray-600">Pages</p>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      {/* Search Section */}
+      <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8 sm:py-12">
+        <div className="flex flex-col sm:flex-row gap-4 items-center justify-between">
+          <div className="relative flex-1 w-full">
+            <Search className="absolute left-4 top-1/2 transform -translate-y-1/2 text-gray-400 w-5 h-5" />
+            <input
+              type="text"
+              placeholder="Search blogs by title, content, or author..."
+              value={searchTerm}
+              onChange={(e) => setSearchTerm(e.target.value)}
+              className="w-full pl-12 pr-4 py-3 sm:py-4 rounded-xl border-2 border-gray-200 focus:border-indigo-500 focus:ring-2 focus:ring-indigo-200 transition-all duration-200 outline-none text-sm sm:text-base"
+            />
+          </div>
+          <button className="flex items-center gap-2 px-4 sm:px-6 py-3 sm:py-4 bg-white rounded-xl border-2 border-gray-200 hover:border-indigo-500 transition-all duration-200 font-medium text-gray-700 hover:text-indigo-600 w-full sm:w-auto justify-center">
+            <Filter className="w-5 h-5" />
+            <span className="text-sm sm:text-base">Filter</span>
+          </button>
+        </div>
+      </div>
+
+      {/* Blogs Grid */}
+      <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 pb-12 sm:pb-16">
         {error && (
-          <div className="bg-red-100 text-red-700 px-6 py-4 rounded-2xl border border-red-300 shadow mb-6">
-            {error}
+          <div className="bg-red-50 border border-red-200 rounded-xl p-4 mb-6 flex items-start gap-3">
+            <AlertCircle className="w-5 h-5 text-red-600 flex-shrink-0 mt-0.5" />
+            <p className="text-red-600 font-medium text-sm sm:text-base">{error}</p>
           </div>
         )}
 
-        <div className="grid grid-cols-1 lg:grid-cols-2 xl:grid-cols-3 gap-10">
-          {filteredBlogs.map((blog, index) => (
-            <BlogCard
-              key={blog.id}
-              blog={blog}
-              onView={handleView}
-              onEdit={handleEdit}
-              onDelete={handleDelete}
-              canEdit={user && authorEmails[blog.authorId] === user.email}
-              index={index}
-            />
-          ))}
-        </div>
-
-        {filteredBlogs.length === 0 && !loading && (
-          <div className="text-center py-20">
-            <div className="w-32 h-32 bg-gradient-to-r from-blue-100 to-purple-100 rounded-full flex items-center justify-center mx-auto mb-8">
-              <Search className="w-12 h-12 text-gray-400" />
-            </div>
-            <h3 className="text-3xl font-bold text-gray-900 mb-4">
-              No stories found
-            </h3>
-            <p className="text-xl text-gray-600 max-w-md mx-auto">
-              Try adjusting your search terms or explore our trending topics
+        {filteredBlogs.length === 0 && !loading ? (
+          <div className="text-center py-12 sm:py-16 bg-white rounded-2xl shadow-lg">
+            <BookOpen className="w-12 h-12 sm:w-16 sm:h-16 mx-auto text-gray-400 mb-4" />
+            <p className="text-lg sm:text-xl text-gray-600 mb-2 px-4">
+              {searchTerm
+                ? "No blogs found matching your search."
+                : "No blogs available yet."}
+            </p>
+            <p className="text-sm sm:text-base text-gray-500 px-4">
+              {searchTerm
+                ? "Try adjusting your search terms"
+                : user
+                ? "Be the first to create a blog!"
+                : "Check back later for new content!"}
             </p>
           </div>
-        )}
+        ) : (
+          <>
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-6 sm:gap-8">
+              {filteredBlogs.slice(0, visibleBlogs).map((blog, index) => {
+                const isLastBlog = index === visibleBlogs - 1;
+                return (
+                  <div
+                    key={blog.id}
+                    ref={isLastBlog ? lastBlogRef : null}
+                  >
+                    <BlogCard
+                      blog={blog}
+                      authorEmail={authorEmails[blog.authorId]}
+                      onView={handleView}
+                      onEdit={handleEdit}
+                      onDelete={handleDelete}
+                      user={user}
+                    />
+                  </div>
+                );
+              })}
+            </div>
 
-        {totalPages > 1 && (
-          <div className="flex justify-center mt-12">
-            <nav className="flex items-center space-x-2">
-              {Array.from({ length: totalPages }, (_, i) => i).map((page) => (
+            {loading && (
+              <div className="text-center py-8">
+                <div className="inline-block animate-spin rounded-full h-10 w-10 sm:h-12 sm:w-12 border-4 border-indigo-200 border-t-indigo-600"></div>
+                <p className="mt-4 text-gray-600 font-medium text-sm sm:text-base">Loading blogs...</p>
+              </div>
+            )}
+
+            {visibleBlogs < filteredBlogs.length && !loading && (
+              <div className="text-center mt-8 sm:mt-12">
                 <button
-                  key={page}
-                  onClick={() => setBlogPage(page)}
-                  className={`px-4 py-2 rounded-lg text-sm font-medium transition-all ${
-                    page === blogPage
-                      ? "bg-blue-600 text-white shadow-md"
-                      : "text-gray-700 hover:bg-gray-100"
-                  }`}
+                  onClick={() =>
+                    setVisibleBlogs((prev) => Math.min(prev + 6, filteredBlogs.length))
+                  }
+                  className="px-6 sm:px-8 py-3 sm:py-4 bg-gradient-to-r from-indigo-600 to-purple-600 text-white rounded-full font-semibold hover:from-indigo-700 hover:to-purple-700 transition-all duration-300 shadow-lg hover:shadow-xl transform hover:-translate-y-1 text-sm sm:text-base"
                 >
-                  {page + 1}
+                  Load More ({filteredBlogs.length - visibleBlogs} remaining)
                 </button>
-              ))}
-            </nav>
-          </div>
+              </div>
+            )}
+          </>
         )}
-      </section>
+      </div>
+
+      {/* Pagination */}
+      <Pagination
+        currentPage={blogPage}
+        totalPages={totalPages}
+        onPageChange={setBlogPage}
+      />
     </div>
   );
 };

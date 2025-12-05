@@ -18,10 +18,8 @@ const blogApi = {
       if (!res.ok) throw new Error("Failed to fetch blogs");
       const data = await res.json();
       const blogs = Array.isArray(data) ? data : [];
-
       const startIndex = page * size;
       const paginatedBlogs = blogs.slice(startIndex, startIndex + size);
-
       return {
         blogs: paginatedBlogs,
         totalPages: Math.ceil(blogs.length / size),
@@ -66,7 +64,6 @@ const blogApi = {
           updatedAt: new Date().toISOString(),
         }),
       });
-
       if (!res.ok) throw new Error("Failed to create blog");
       return await res.json();
     } catch (error) {
@@ -91,7 +88,6 @@ const blogApi = {
           updatedAt: new Date().toISOString(),
         }),
       });
-
       if (!res.ok) throw new Error("Failed to update blog");
       return await res.json();
     } catch (error) {
@@ -110,7 +106,6 @@ const blogApi = {
           ),
         },
       });
-
       if (!res.ok) throw new Error("Failed to delete blog");
       return { success: true };
     } catch (error) {
@@ -124,7 +119,7 @@ const BlogProvider = ({ children }) => {
   const { user } = useAuth();
 
   // Enhanced API object that includes user credentials
-  const enhancedBlogApi = {
+  const api = {
     ...blogApi,
     createBlog: (title, content) => blogApi.createBlog(title, content, user),
     updateBlog: (id, title, content) =>
@@ -133,11 +128,7 @@ const BlogProvider = ({ children }) => {
   };
 
   return (
-    <BlogContext.Provider
-      value={{
-        api: enhancedBlogApi,
-      }}
-    >
+    <BlogContext.Provider value={{ api }}>
       {children}
     </BlogContext.Provider>
   );

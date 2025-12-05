@@ -11,11 +11,7 @@ import UserProfile from "./Pages/userProfile";
 const App = () => {
   const [currentPage, setCurrentPage] = useState("home");
   const [blogId, setBlogId] = useState(null);
-  const { user, loading } = useAuth();
-
-  if (loading) {
-    return <Loading />;
-  }
+  const { user } = useAuth(); 
 
   const renderPage = () => {
     switch (currentPage) {
